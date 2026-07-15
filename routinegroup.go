@@ -6,8 +6,8 @@ import (
 )
 
 type RoutineGroup struct {
-	ctx    context.Context
-	cancel func(error)
+	rootCtx    context.Context
+	rootCancel context.CancelCauseFunc
 
 	wg sync.WaitGroup
 
@@ -26,9 +26,9 @@ func NewRoutineGroup(ctx context.Context, maxConcurrency int, queueCapacity int)
 		queueCapacity = 0
 	}
 	return &RoutineGroup{
-		ctx:     ctx,
-		cancel:  cancel,
-		routine: NewRoutine(maxConcurrency, queueCapacity),
+		rootCtx:    ctx,
+		rootCancel: cancel,
+		routine:    NewRoutine(maxConcurrency, queueCapacity),
 	}
 }
 
@@ -37,9 +37,9 @@ func (g *RoutineGroup) Wait() error {
 	if g.routine != nil {
 		g.routine.Close()
 	}
-	cause := context.Cause(g.ctx)
-	if g.cancel != nil {
-		g.cancel(g.err)
+	cause := context.Cause(g.rootCtx)
+	if g.rootCancel != nil {
+		g.rootCancel(g.err)
 	}
 	if g.err != nil {
 		return g.err
@@ -53,39 +53,39 @@ func (g *RoutineGroup) OnPanic(handler PanicHandler) {
 
 func (g *RoutineGroup) Go(fn func(context.Context) error) {
 	select {
-	case <-g.ctx.Done():
+	case <-g.rootCtx.Done():
 		return
 	default:
 	}
 
 	g.wg.Add(1)
-	if g.routine.Go(g.ctx, g.makeTask(fn, true)) != nil {
+	if g.routine.Go(g.rootCtx, g.makeTask(fn, true)) != nil {
 		g.wg.Done()
 	}
 }
 
 func (g *RoutineGroup) Run(fn func(ctx context.Context) error) {
 	select {
-	case <-g.ctx.Done():
+	case <-g.rootCtx.Done():
 		return
 	default:
 	}
 
 	g.wg.Add(1)
-	if g.routine.Go(g.ctx, g.makeTask(fn, false)) != nil {
+	if g.routine.Go(g.rootCtx, g.makeTask(fn, false)) != nil {
 		g.wg.Done()
 	}
 }
 
 func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
 	select {
-	case <-g.ctx.Done():
+	case <-g.rootCtx.Done():
 		return false
 	default:
 	}
 
 	g.wg.Add(1)
-	if g.routine.TryGo(g.ctx, g.makeTask(fn, true)) != nil {
+	if g.routine.TryGo(g.rootCtx, g.makeTask(fn, true)) != nil {
 		g.wg.Done()
 		return false
 	}
@@ -95,11 +95,11 @@ func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
 func (g *RoutineGroup) makeTask(fn func(context.Context) error, cancelOnError bool) func() {
 	return func() {
 		defer g.wg.Done()
-		if err := fn(g.ctx); err != nil {
+		if err := fn(g.rootCtx); err != nil {
 			g.errOnce.Do(func() {
 				g.err = err
-				if cancelOnError && g.cancel != nil {
-					g.cancel(g.err)
+				if cancelOnError && g.rootCancel != nil {
+					g.rootCancel(g.err)
 				}
 			})
 		}
