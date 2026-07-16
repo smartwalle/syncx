@@ -66,6 +66,13 @@ func (r *Routine) Go(ctx context.Context, fn func()) error {
 	defer r.endSubmit()
 
 	select {
+	case <-ctx.Done():
+		r.doneTask()
+		return ctx.Err()
+	default:
+	}
+
+	select {
 	case r.tasks <- fn:
 		return nil
 	case <-ctx.Done():
@@ -108,6 +115,8 @@ func (r *Routine) TryGo(ctx context.Context, fn func()) error {
 	}
 }
 
+// Close 关闭 Routine 并等待正在执行的任务结束。
+// 不要在提交到同一个 Routine 的任务中调用 Close。
 func (r *Routine) Close() {
 	r.closeOnce.Do(func() {
 		r.mu.Lock()
@@ -122,6 +131,8 @@ func (r *Routine) Close() {
 	})
 }
 
+// Wait 阻塞直到所有已提交的任务执行完成。
+// 不要在提交到同一个 Routine 的任务中调用 Wait。
 func (r *Routine) Wait() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
