@@ -17,38 +17,39 @@ var (
 type Routine struct {
 	tasks chan func()
 
-	mu         sync.Mutex
-	cond       *sync.Cond
-	workers    int
+	mu   sync.Mutex
+	cond *sync.Cond
+
+	runnerWg    sync.WaitGroup
+	runnerCount int
+
 	submitters int
 	pending    int
 
 	closed    chan struct{}
 	closeOnce sync.Once
 
-	workerWg sync.WaitGroup
-
-	maxWorkers  int
-	idleTimeout time.Duration
+	maxConcurrency int
+	idleTimeout    time.Duration
 
 	panicHandler atomic.Value
 }
 
 type PanicHandler func(any)
 
-func NewRoutine(maxWorkers int, queueCapacity int) *Routine {
-	if maxWorkers < 1 {
-		maxWorkers = 1
+func NewRoutine(maxConcurrency int, queueCapacity int) *Routine {
+	if maxConcurrency < 1 {
+		maxConcurrency = 1
 	}
 	if queueCapacity < 0 {
 		queueCapacity = 0
 	}
 
 	var routine = &Routine{
-		tasks:       make(chan func(), queueCapacity),
-		closed:      make(chan struct{}),
-		maxWorkers:  maxWorkers,
-		idleTimeout: time.Second,
+		tasks:          make(chan func(), queueCapacity),
+		closed:         make(chan struct{}),
+		maxConcurrency: maxConcurrency,
+		idleTimeout:    time.Second * 5,
 	}
 	routine.cond = sync.NewCond(&routine.mu)
 
@@ -117,7 +118,7 @@ func (r *Routine) Close() {
 		close(r.tasks)
 		r.mu.Unlock()
 
-		r.workerWg.Wait()
+		r.runnerWg.Wait()
 	})
 }
 
@@ -158,10 +159,10 @@ func (r *Routine) beginSubmit() bool {
 	r.submitters++
 	r.pending++
 
-	if r.workers < r.maxWorkers {
-		r.workers++
-		r.workerWg.Add(1)
-		go r.worker()
+	if r.runnerCount < r.maxConcurrency {
+		r.runnerCount++
+		r.runnerWg.Add(1)
+		go r.runnerLoop()
 	}
 
 	return true
@@ -185,13 +186,13 @@ func (r *Routine) doneTask() {
 	r.mu.Unlock()
 }
 
-func (r *Routine) worker() {
+func (r *Routine) runnerLoop() {
 	var stopped = false
 	defer func() {
 		if !stopped {
-			r.stopWorker()
+			r.finishRunner()
 		}
-		r.workerWg.Done()
+		r.runnerWg.Done()
 	}()
 
 	var timer = time.NewTimer(r.idleTimeout)
@@ -226,7 +227,7 @@ func (r *Routine) worker() {
 					timer.Reset(r.idleTimeout)
 					continue
 				}
-				r.workers--
+				r.runnerCount--
 				stopped = true
 				r.mu.Unlock()
 				return
@@ -235,9 +236,9 @@ func (r *Routine) worker() {
 	}
 }
 
-func (r *Routine) stopWorker() {
+func (r *Routine) finishRunner() {
 	r.mu.Lock()
-	r.workers--
+	r.runnerCount--
 	r.mu.Unlock()
 }
 
