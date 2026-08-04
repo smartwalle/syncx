@@ -9,8 +9,6 @@ type RoutineGroup struct {
 	rootCtx    context.Context
 	rootCancel context.CancelCauseFunc
 
-	wg sync.WaitGroup
-
 	routine *Routine
 
 	errOnce sync.Once
@@ -33,8 +31,8 @@ func NewRoutineGroup(ctx context.Context, maxConcurrency int, queueCapacity int)
 }
 
 func (g *RoutineGroup) Wait() error {
-	g.wg.Wait()
 	if g.routine != nil {
+		g.routine.Wait()
 		g.routine.Close()
 	}
 
@@ -55,10 +53,7 @@ func (g *RoutineGroup) Go(fn func(context.Context) error) {
 	default:
 	}
 
-	g.wg.Add(1)
-	if g.routine.Go(g.rootCtx, g.makeTask(fn, true)) != nil {
-		g.wg.Done()
-	}
+	_ = g.routine.Go(g.rootCtx, g.makeTask(fn, true))
 }
 
 func (g *RoutineGroup) Run(fn func(ctx context.Context) error) {
@@ -68,10 +63,7 @@ func (g *RoutineGroup) Run(fn func(ctx context.Context) error) {
 	default:
 	}
 
-	g.wg.Add(1)
-	if g.routine.Go(g.rootCtx, g.makeTask(fn, false)) != nil {
-		g.wg.Done()
-	}
+	_ = g.routine.Go(g.rootCtx, g.makeTask(fn, false))
 }
 
 func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
@@ -81,9 +73,7 @@ func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
 	default:
 	}
 
-	g.wg.Add(1)
 	if g.routine.TryGo(g.rootCtx, g.makeTask(fn, true)) != nil {
-		g.wg.Done()
 		return false
 	}
 	return true
@@ -91,7 +81,6 @@ func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
 
 func (g *RoutineGroup) makeTask(fn func(context.Context) error, cancelOnError bool) func() {
 	return func() {
-		defer g.wg.Done()
 		if err := fn(g.rootCtx); err != nil {
 			g.errOnce.Do(func() {
 				g.err = err
