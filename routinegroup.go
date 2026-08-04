@@ -37,14 +37,11 @@ func (g *RoutineGroup) Wait() error {
 	if g.routine != nil {
 		g.routine.Close()
 	}
-	cause := context.Cause(g.rootCtx)
+
 	if g.rootCancel != nil {
 		g.rootCancel(g.err)
 	}
-	if g.err != nil {
-		return g.err
-	}
-	return cause
+	return g.err
 }
 
 func (g *RoutineGroup) OnPanic(handler PanicHandler) {
