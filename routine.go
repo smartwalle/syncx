@@ -254,11 +254,11 @@ func (r *Routine) finishRunner() {
 }
 
 func (r *Routine) run(fn func()) {
+	defer r.doneTask()
 	defer func() {
 		if x := recover(); x != nil {
 			r.handlePanic(x)
 		}
-		r.doneTask()
 	}()
 	fn()
 }
@@ -266,7 +266,7 @@ func (r *Routine) run(fn func()) {
 func (r *Routine) handlePanic(x any) {
 	var handler, _ = r.panicHandler.Load().(PanicHandler)
 	if handler == nil {
-		return
+		panic(x)
 	}
 
 	defer func() {
