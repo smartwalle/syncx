@@ -206,23 +206,30 @@ func (r *Routine) runnerLoop() {
 		r.runnerWg.Done()
 	}()
 
-	var timer = time.NewTimer(r.idleTimeout)
-	defer timer.Stop()
-
 	for {
 		select {
 		case fn, ok := <-r.tasks:
 			if !ok {
 				return
 			}
+			r.run(fn)
+			continue
+		default:
+		}
+
+		var timer = time.NewTimer(r.idleTimeout)
+		select {
+		case fn, ok := <-r.tasks:
 			if !timer.Stop() {
 				select {
 				case <-timer.C:
 				default:
 				}
 			}
+			if !ok {
+				return
+			}
 			r.run(fn)
-			timer.Reset(r.idleTimeout)
 		case <-timer.C:
 			select {
 			case fn, ok := <-r.tasks:
@@ -230,12 +237,10 @@ func (r *Routine) runnerLoop() {
 					return
 				}
 				r.run(fn)
-				timer.Reset(r.idleTimeout)
 			default:
 				r.mu.Lock()
 				if r.submitters > 0 {
 					r.mu.Unlock()
-					timer.Reset(r.idleTimeout)
 					continue
 				}
 				r.runnerCount--
