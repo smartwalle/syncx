@@ -199,7 +199,11 @@ func (r *Routine) doneTask() {
 
 func (r *Routine) runnerLoop() {
 	var stopped = false
+	var idleTimer *time.Timer
 	defer func() {
+		if idleTimer != nil {
+			idleTimer.Stop()
+		}
 		if !stopped {
 			r.finishRunner()
 		}
@@ -217,12 +221,16 @@ func (r *Routine) runnerLoop() {
 		default:
 		}
 
-		var timer = time.NewTimer(r.idleTimeout)
+		if idleTimer == nil {
+			idleTimer = time.NewTimer(r.idleTimeout)
+		} else {
+			idleTimer.Reset(r.idleTimeout)
+		}
 		select {
 		case fn, ok := <-r.tasks:
-			if !timer.Stop() {
+			if !idleTimer.Stop() {
 				select {
-				case <-timer.C:
+				case <-idleTimer.C:
 				default:
 				}
 			}
@@ -230,7 +238,7 @@ func (r *Routine) runnerLoop() {
 				return
 			}
 			r.run(fn)
-		case <-timer.C:
+		case <-idleTimer.C:
 			select {
 			case fn, ok := <-r.tasks:
 				if !ok {
