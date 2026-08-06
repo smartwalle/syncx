@@ -174,8 +174,6 @@ func (p *Pool) TryGo(fn func()) error {
 	}
 }
 
-// Close 拒绝后续提交，并等待已接收任务和 worker 结束。
-// 不要在提交到同一个 Pool 的任务中调用 Close，否则会等待当前任务退出而死锁。
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		state := p.markClosed()
@@ -196,7 +194,6 @@ func (p *Pool) Closed() bool {
 	return p.submitState.Load()&poolClosedState != 0
 }
 
-// OnPanic 设置任务 panic 的处理器。未设置时保留原始 panic 行为。
 func (p *Pool) OnPanic(handler PanicHandler) {
 	if handler != nil {
 		p.panicHandler.Store(handler)
