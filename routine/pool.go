@@ -17,13 +17,15 @@ var (
 
 type Option func(*Pool)
 
-func WithMaxWorkers(n int) Option {
+type PanicHandler func(any)
+
+func WithMaxWorkers(n int32) Option {
 	return func(p *Pool) {
 		p.maxWorkers = n
 	}
 }
 
-func WithQueueCapacity(n int) Option {
+func WithQueueCapacity(n int32) Option {
 	return func(p *Pool) {
 		p.taskQueueCapacity = n
 	}
@@ -49,11 +51,12 @@ type Pool struct {
 	closeOnce sync.Once
 	workerWG  sync.WaitGroup
 
-	maxWorkers        int
-	taskQueueCapacity int
+	maxWorkers        int32
+	taskQueueCapacity int32
 	idleTimeout       time.Duration
 	workerCount       atomic.Int32
 	cleanupDone       chan struct{}
+	panicHandler      atomic.Value
 }
 
 const (
@@ -84,7 +87,7 @@ func New(options ...Option) *Pool {
 		p.idleTimeout = defaultIdleTimeout
 	}
 
-	p.taskQueue = make(chan func(), p.taskQueueCapacity)
+	p.taskQueue = make(chan func(), int(p.taskQueueCapacity))
 	go p.cleanupIdleWorkers()
 	return p
 }
@@ -171,6 +174,8 @@ func (p *Pool) TryGo(fn func()) error {
 	}
 }
 
+// Close 拒绝后续提交，并等待已接收任务和 worker 结束。
+// 不要在提交到同一个 Pool 的任务中调用 Close，否则会等待当前任务退出而死锁。
 func (p *Pool) Close() {
 	p.closeOnce.Do(func() {
 		state := p.markClosed()
@@ -191,6 +196,13 @@ func (p *Pool) Closed() bool {
 	return p.submitState.Load()&poolClosedState != 0
 }
 
+// OnPanic 设置任务 panic 的处理器。未设置时保留原始 panic 行为。
+func (p *Pool) OnPanic(handler PanicHandler) {
+	if handler != nil {
+		p.panicHandler.Store(handler)
+	}
+}
+
 func (p *Pool) worker() {
 	defer p.finishWorker()
 
@@ -199,14 +211,14 @@ func (p *Pool) worker() {
 		if !ok || fn == nil {
 			return
 		}
-		fn()
+		p.run(fn)
 	}
 }
 
 func (p *Pool) startWorker() {
 	for {
 		count := p.workerCount.Load()
-		if count >= int32(p.maxWorkers) {
+		if count >= p.maxWorkers {
 			return
 		}
 		if p.workerCount.CompareAndSwap(count, count+1) {
@@ -218,7 +230,7 @@ func (p *Pool) startWorker() {
 }
 
 func (p *Pool) scaleForQueuedWork() {
-	if len(p.taskQueue) > 0 || (!p.Closed() && p.submitting() > 1) {
+	if len(p.taskQueue) > 0 || (!p.Closed() && p.submitting() > 0) {
 		p.startWorker()
 	}
 }
@@ -227,6 +239,27 @@ func (p *Pool) finishWorker() {
 	defer p.workerWG.Done()
 	p.workerCount.Add(-1)
 	p.scaleForQueuedWork()
+}
+
+func (p *Pool) run(fn func()) {
+	defer func() {
+		if x := recover(); x != nil {
+			p.handlePanic(x)
+		}
+	}()
+	fn()
+}
+
+func (p *Pool) handlePanic(x any) {
+	handler, _ := p.panicHandler.Load().(PanicHandler)
+	if handler == nil {
+		panic(x)
+	}
+
+	defer func() {
+		_ = recover()
+	}()
+	handler(x)
 }
 
 func (p *Pool) cleanupIdleWorkers() {
