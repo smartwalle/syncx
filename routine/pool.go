@@ -25,7 +25,7 @@ func WithMaxWorkers(n int32) Option {
 	}
 }
 
-func WithQueueCapacity(n int32) Option {
+func WithCapacity(n int32) Option {
 	return func(p *Pool) {
 		p.taskQueueCapacity = n
 	}
