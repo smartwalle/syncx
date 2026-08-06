@@ -8,11 +8,11 @@ import (
 )
 
 var (
-	ErrRoutineClosed = errors.New("routine is closed")
+	ErrPoolClosed = errors.New("pool is closed")
 
-	ErrRoutineQueueFull = errors.New("routine queue is full")
+	ErrPoolOverload = errors.New("pool overload")
 
-	ErrRoutineBadTask = errors.New("routine task is nil")
+	ErrInvalidTask = errors.New("invalid task")
 )
 
 type Option func(*Pool)
@@ -94,10 +94,10 @@ func New(options ...Option) *Pool {
 
 func (p *Pool) Go(fn func()) error {
 	if fn == nil {
-		return ErrRoutineBadTask
+		return ErrInvalidTask
 	}
 	if !p.beginSubmit() {
-		return ErrRoutineClosed
+		return ErrPoolClosed
 	}
 	defer p.endSubmit()
 	p.startWorker()
@@ -110,7 +110,7 @@ func (p *Pool) Go(fn func()) error {
 		case p.taskQueue <- fn:
 			return nil
 		case <-p.closed:
-			return ErrRoutineClosed
+			return ErrPoolClosed
 		}
 	}
 
@@ -129,16 +129,16 @@ func (p *Pool) Go(fn func()) error {
 	case p.taskQueue <- fn:
 		return nil
 	case <-p.closed:
-		return ErrRoutineClosed
+		return ErrPoolClosed
 	}
 }
 
 func (p *Pool) TryGo(fn func()) error {
 	if fn == nil {
-		return ErrRoutineBadTask
+		return ErrInvalidTask
 	}
 	if !p.beginSubmit() {
-		return ErrRoutineClosed
+		return ErrPoolClosed
 	}
 	defer p.endSubmit()
 	p.startWorker()
@@ -149,9 +149,9 @@ func (p *Pool) TryGo(fn func()) error {
 		case p.taskQueue <- fn:
 			return nil
 		case <-p.closed:
-			return ErrRoutineClosed
+			return ErrPoolClosed
 		default:
-			return ErrRoutineQueueFull
+			return ErrPoolOverload
 		}
 	}
 
@@ -168,9 +168,9 @@ func (p *Pool) TryGo(fn func()) error {
 	// 则优先返回关闭错误。
 	select {
 	case <-p.closed:
-		return ErrRoutineClosed
+		return ErrPoolClosed
 	default:
-		return ErrRoutineQueueFull
+		return ErrPoolOverload
 	}
 }
 
