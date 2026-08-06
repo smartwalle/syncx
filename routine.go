@@ -1,7 +1,6 @@
 package syncx
 
 import (
-	"context"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -79,8 +78,8 @@ func NewRoutine(maxConcurrency int, queueCapacity int) *Routine {
 	return routine
 }
 
-// Go 提交任务；队列已满时会等待任务可写入、ctx 取消或 Routine 关闭。
-func (r *Routine) Go(ctx context.Context, fn func()) error {
+// Go 提交任务；队列已满时会等待任务可写入或 Routine 关闭。
+func (r *Routine) Go(fn func()) error {
 	if fn == nil {
 		return ErrRoutineBadTask
 	}
@@ -90,18 +89,8 @@ func (r *Routine) Go(ctx context.Context, fn func()) error {
 	defer r.endSubmit()
 
 	select {
-	case <-ctx.Done():
-		r.doneTask()
-		return ctx.Err()
-	default:
-	}
-
-	select {
 	case r.tasks <- fn:
 		return nil
-	case <-ctx.Done():
-		r.doneTask()
-		return ctx.Err()
 	case <-r.closed:
 		r.doneTask()
 		return ErrRoutineClosed
@@ -109,7 +98,7 @@ func (r *Routine) Go(ctx context.Context, fn func()) error {
 }
 
 // TryGo 尝试立即提交任务；队列暂时无法写入时返回 ErrRoutineQueueFull。
-func (r *Routine) TryGo(ctx context.Context, fn func()) error {
+func (r *Routine) TryGo(fn func()) error {
 	if fn == nil {
 		return ErrRoutineBadTask
 	}
@@ -119,18 +108,8 @@ func (r *Routine) TryGo(ctx context.Context, fn func()) error {
 	defer r.endSubmit()
 
 	select {
-	case <-ctx.Done():
-		r.doneTask()
-		return ctx.Err()
-	default:
-	}
-
-	select {
 	case r.tasks <- fn:
 		return nil
-	case <-ctx.Done():
-		r.doneTask()
-		return ctx.Err()
 	case <-r.closed:
 		r.doneTask()
 		return ErrRoutineClosed

@@ -53,7 +53,7 @@ func (g *RoutineGroup) Go(fn func(context.Context) error) {
 	default:
 	}
 
-	_ = g.routine.Go(g.rootCtx, g.makeTask(fn, true))
+	_ = g.routine.Go(g.makeTask(fn, true))
 }
 
 func (g *RoutineGroup) Run(fn func(ctx context.Context) error) {
@@ -63,7 +63,7 @@ func (g *RoutineGroup) Run(fn func(ctx context.Context) error) {
 	default:
 	}
 
-	_ = g.routine.Go(g.rootCtx, g.makeTask(fn, false))
+	_ = g.routine.Go(g.makeTask(fn, false))
 }
 
 func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
@@ -73,7 +73,7 @@ func (g *RoutineGroup) TryGo(fn func(context.Context) error) bool {
 	default:
 	}
 
-	if g.routine.TryGo(g.rootCtx, g.makeTask(fn, true)) != nil {
+	if g.routine.TryGo(g.makeTask(fn, true)) != nil {
 		return false
 	}
 	return true
