@@ -263,30 +263,22 @@ func (r *Routine) beginSubmit() bool {
 
 // endSubmit 标记发送阶段结束；最后一个提交者离开时可能触发任务通道关闭。
 func (r *Routine) endSubmit() {
-	for {
-		state := r.state.Load()
-		next := state - routineSubmittingStep
-		if r.state.CompareAndSwap(state, next) {
-			r.closeTasksWhenReady(next)
-			return
-		}
-	}
+	// beginSubmit 已为当前调用保留一个 submitting 计数，减法不会影响
+	// pending 或 closed 位。使用 Add 避免多个提交者结束时 CAS 重试。
+	next := r.state.Add(^uint64(routineSubmittingStep - 1))
+	r.closeTasksWhenReady(next)
 }
 
 // doneTask 标记任务不再需要等待。只有任务数归零时才获取通知锁唤醒 Wait，
 // 避免每次任务完成都竞争互斥锁。
 func (r *Routine) doneTask() {
-	for {
-		state := r.state.Load()
-		next := state - 1
-		if r.state.CompareAndSwap(state, next) {
-			if next&routinePendingMask == 0 {
-				r.waitMu.Lock()
-				r.waitCond.Broadcast()
-				r.waitMu.Unlock()
-			}
-			return
-		}
+	// 每个成功准入的任务恰好调用一次 doneTask，因此 pending 不会下溢。
+	// pending 位位于 state 的最低位，减一不会影响 submitting 或 closed 位。
+	next := r.state.Add(^uint64(0))
+	if next&routinePendingMask == 0 {
+		r.waitMu.Lock()
+		r.waitCond.Broadcast()
+		r.waitMu.Unlock()
 	}
 }
 
@@ -351,7 +343,10 @@ func (r *Routine) runnerLoop() {
 // 此时尝试补充 worker，避免队列中任务无人消费。
 func (r *Routine) finishRunner() {
 	r.runnerCount.Add(-1)
-	if !r.tasksAreClosed() && r.submitters() > 0 {
+	// 发送方可能在 worker 完成空闲检查后才写入有缓冲队列，并在此处前
+	// 已结束提交阶段。除检查 submitting 外还检查队列，确保该任务能促使
+	// 新 worker 启动；无缓冲队列仍通过 submitting 识别阻塞的发送方。
+	if !r.tasksAreClosed() && (r.submitters() > 0 || len(r.tasks) > 0) {
 		r.startRunner()
 	}
 }
