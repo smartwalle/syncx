@@ -10,7 +10,7 @@ import (
 var (
 	ErrPoolClosed = errors.New("pool is closed")
 
-	ErrPoolOverload = errors.New("pool overload")
+	ErrPoolOverloaded = errors.New("pool overloaded")
 
 	ErrInvalidTask = errors.New("invalid task")
 )
@@ -151,7 +151,7 @@ func (p *Pool) TryGo(fn func()) error {
 		case <-p.closed:
 			return ErrPoolClosed
 		default:
-			return ErrPoolOverload
+			return ErrPoolOverloaded
 		}
 	}
 
@@ -170,7 +170,7 @@ func (p *Pool) TryGo(fn func()) error {
 	case <-p.closed:
 		return ErrPoolClosed
 	default:
-		return ErrPoolOverload
+		return ErrPoolOverloaded
 	}
 }
 
